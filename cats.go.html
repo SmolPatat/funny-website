@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cool Cats</title>
+</head>
+
+<body>
+    {{if .ImageURL}}
+    <article>
+        <img src={{.ImageURL}} alt="A random cat" width="50%" height="80%"
+            style="float: inline-start; padding-inline: 2%;">
+        <h2>{{.Name}}</h2>
+        <p>{{.Description}}</p>
+    </article>
+    <button type="button" onclick="location.reload()">Give me another one!</button>
+    {{else}}
+    <dialog open style="display: flex; flex-direction: column;">
+        Something went wrong.
+        <button type="button" onclick="location.reload()">Reload</button>
+    </dialog>
+    {{end}}
+</body>
+
+</html>
