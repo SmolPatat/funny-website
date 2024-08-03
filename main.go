@@ -1,15 +1,25 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net"
 	"net/http"
-	"time"
+
+	"github.com/BurntSushi/toml"
+	"github.com/hashicorp/vault-client-go"
 )
+
+type Config struct {
+	Port  int `toml:"port"`
+	Vault struct {
+		Address string `toml:"address"`
+	} `toml:"vault"`
+}
 
 type Breed struct {
 	Name        string `json:"name"`
@@ -32,23 +42,32 @@ type Cat struct {
 }
 
 func main() {
-	catToken := flag.String("token", "", "The Cat API - API key")
-	flag.Parse()
+	var config Config
+	_, err := toml.DecodeFile("config.toml", &config)
+	if err != nil {
+		log.Fatalf("cannot read configuration: %v", err)
+	}
 
-	if *catToken == "" {
-		panic("No API key provided")
+	vault, err := vault.New(vault.WithAddress(config.Vault.Address), vault.WithEnvironment())
+	if err != nil {
+		log.Fatalf("cannot connect to Vault: %v", err)
+	}
+
+	catToken, err := getCatToken(vault)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	http.Handle("/totally-not-a-virus", http.RedirectHandler("/cat", http.StatusFound))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("[%s; %s]: %s\n", time.Now().Format(time.DateTime), r.Host+r.URL.Path, r.RemoteAddr)
+		log.Printf("%s by %s\n", r.Host+r.URL.Path, r.RemoteAddr)
 
 		http.ServeFile(w, r, "home.go.html")
 	})
 
 	http.HandleFunc("/cat", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("[%s; %s]: %s\n", time.Now().Format(time.DateTime), r.Host+r.URL.Path, r.RemoteAddr)
+		log.Printf("%s by %s\n", r.Host+r.URL.Path, r.RemoteAddr)
 		templ := template.Must(template.New("cats.go.html").ParseFiles("cats.go.html"))
 
 		catReq, err := http.NewRequest("get", "https://api.thecatapi.com/v1/images/search?has_breeds=1", nil)
@@ -57,23 +76,23 @@ func main() {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		catReq.Header.Set("x-api-key", *catToken)
+		catReq.Header.Set("x-api-key", catToken)
 
 		res, err := http.DefaultClient.Do(catReq)
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 			return
 		}
 
 		catRes, err := io.ReadAll(res.Body)
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 			return
 		}
 
 		var catResponse []CatResponse
 		if err := json.Unmarshal(catRes, &catResponse); err != nil {
-			fmt.Printf("Error on %s. %v", catRes, err)
+			log.Printf("Error on %s. %v", catRes, err)
 			catResponse = []CatResponse{{
 				Breeds: []Breed{{}},
 			}}
@@ -86,20 +105,34 @@ func main() {
 		}
 
 		if err := templ.Execute(w, cat); err != nil {
-			fmt.Println(err)
+			log.Println(err)
 			return
 		}
 	})
 
-	fmt.Println("Starting server!")
-
-	lis, err := net.Listen("tcp6", ":80")
+	lis, err := net.Listen("tcp6", fmt.Sprintf(":%d", config.Port))
 	if err != nil {
-		panic(fmt.Sprintf("server: Could not bind to port 80. %v", err))
+		log.Fatalf("server: Could not bind to port 80. %v", err)
 	}
+
+	log.Println("Starting the server!")
 
 	err = http.Serve(lis, nil)
 	if err != nil {
-		panic(fmt.Sprintf("server: Could not start the server. %v", err))
+		log.Fatalf("server: Could not start the server. %v", err)
 	}
+}
+
+func getCatToken(client *vault.Client) (string, error) {
+	ctx := context.TODO()
+	response, err := client.Secrets.KvV2Read(ctx, "the-cat-api", vault.WithMountPath("secret"))
+	if err != nil {
+		return "", fmt.Errorf("cannot read TheCatAPI secrets: %w", err)
+	}
+
+	catToken, ok := response.Data.Data["API-key"].(string)
+	if !ok {
+		return "", fmt.Errorf("cannot read TheCatAPI token: %w", err)
+	}
+	return catToken, nil
 }

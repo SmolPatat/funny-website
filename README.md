@@ -6,11 +6,12 @@ Just goof.
 Download the project from GitHub.
 
 ## Dependencies
-- Go 1.22.5
-- thecatapi.com token
+- [Go](https://go.dev/doc/install) >=1.22.5
+- [Vault](https://developer.hashicorp.com/vault/install) >=1.17.2
+    - [TheCatAPI](https://thecatapi.com) developer token
 
 ## How to run?
 Use the following command in the terminal
 ```shell
-go run . -token "<TheCatApi_token>"
+VAULT_TOKEN="<vault auth token>" go run .
 ```
